@@ -27,6 +27,6 @@ async fn main() {
             Ok(_) => println!("worky wrote"),
             Err(e) => println!("error writing {}",e),
         }
-    }).await;
+    },8usize).await;
 
 }

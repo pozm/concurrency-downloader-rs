@@ -3,7 +3,7 @@ use std::{fmt::Debug, sync::{Arc, Mutex}};
 use futures::{stream, StreamExt, Future, future::join_all};
 use reqwest::Client;
 
-const CONCURRENT_REQUESTS: usize = 16;
+// const CONCURRENT_REQUESTS: usize = 16;
 
 
 fn slice_at_idx<T: Clone>(v:Vec<T>,at:usize) -> Vec<Vec<T>>  {
@@ -22,8 +22,8 @@ fn slice_at_idx<T: Clone>(v:Vec<T>,at:usize) -> Vec<Vec<T>>  {
     nv
 }
 
-pub async fn download_list<T:Into<String> + Debug + Clone, F:Fn(Vec<u8>) -> Fut,Fut: Future<Output=()>>(client: &Client, url: Vec<T>, on_complete: F) {
-    let pog = slice_at_idx(url, 4);
+pub async fn download_list<T:Into<String> + Debug + Clone, F:Fn(Vec<u8>) -> Fut,Fut: Future<Output=()>>(client: &Client, url: Vec<T>, on_complete: F,concurrent_max: usize) {
+    let pog = slice_at_idx(url, concurrent_max);
     for urls in pog {
         if urls.is_empty() {
             continue;
@@ -39,7 +39,7 @@ pub async fn download_list<T:Into<String> + Debug + Clone, F:Fn(Vec<u8>) -> Fut,
                     resp.bytes().await
                 }
             })
-            .buffer_unordered(CONCURRENT_REQUESTS);
+            .buffer_unordered(concurrent_max);
     
         bodies
             .for_each(|b| async {
