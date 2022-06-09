@@ -1,0 +1,15 @@
+[package]
+name = "mass_downloader"
+version = "0.1.0"
+edition = "2021"
+about = "A simple mass downloader"
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+infer = "0.8.0"
+tokio = {version = "1.19.0",features = ["full"]}
+clap = {version = "3.1.18",features = ["derive"]}
+concurrency_download = {path=".."}
+reqwest = "0.11.10"
+uuid = {version = "1.1.1",features=["v4"]}
+indicatif = "0.17.0-rc.11"
