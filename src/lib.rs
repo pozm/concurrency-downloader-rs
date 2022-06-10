@@ -29,12 +29,10 @@ pub async fn download_list<
     T: Into<String> + Debug + Clone,
     F: Fn(Vec<u8>) -> Fut,
     Fut: Future<Output = ()>,
-    Fb: Fn(&Client,&T) -> reqwest::Result<Bytes>
 >(
     client: &Client,
     url: Vec<T>,
     on_complete: F,
-    make_request:Option<Fb>,
     concurrent_max: usize,
 ) {
     let pog = slice_at_idx(url, concurrent_max);
@@ -49,15 +47,8 @@ pub async fn download_list<
             .map(|url| {
                 let client = &client;
                 async move {
-                    let g = match make_request {
-                        Some(f) => f(client,&url).await.into(),
-                        None => {
-                            let resp = client.get(url.into()).send().await.unwrap();
-                            let g = resp.bytes().await;
-                            g
-                        },
-                    };
-                    g
+                    let resp = client.get(url.into()).send().await.unwrap();
+                    resp.bytes().await
                 }
             })
             .buffer_unordered(concurrent_max);
@@ -77,6 +68,57 @@ pub async fn download_list<
                 }
             })
             .await;
+        let f = futures_rc.lock().unwrap().take().unwrap();
+        join_all(f).await;
+    }
+}
+#[cfg(feature = "stream")]
+pub async fn download_list_stream<
+    T: Into<String> + Debug + Clone,
+    F: Fn(Vec<u8>,String) -> Fut,
+    F2: Fn(Vec<u8>,String) -> Fut2,
+    Fut: Future<Output = ()>,
+    Fut2: Future<Output = Vec<u8>>,
+>(
+    client: &Client,
+    url: Vec<T>,
+    on_complete: F,
+    on_partial: &F2,
+    concurrent_max: usize,
+) {
+    let pog = slice_at_idx(url, concurrent_max);
+    for urls in pog {
+        if urls.is_empty() {
+            continue;
+        }
+        let futures: Option<Vec<Fut>> = Some(vec![]);
+        let futures_rc = Arc::new(Mutex::new(futures));
+
+        let bodies = stream::iter(urls)
+            .map(|url| {
+                let client = &client;
+                async move {
+                    let ur = url.into();
+                    let resp = client.get(&ur).send().await.unwrap();
+                    let mut s = resp.bytes_stream();
+                    let mut rep = vec![];
+                    while let Some(item) = s.next().await {
+                        rep.append(&mut on_partial(item.unwrap().to_vec(),ur.clone()).await);
+                    }
+                    (rep,ur)
+                }
+            })
+            .buffer_unordered(concurrent_max);
+        bodies
+        .for_each(|b| async {
+            futures_rc
+                        .lock()
+                        .unwrap()
+                        .as_mut()
+                        .unwrap()
+                        .push(on_complete(b.0,b.1));
+        })
+        .await;
         let f = futures_rc.lock().unwrap().take().unwrap();
         join_all(f).await;
     }

@@ -1,15 +1,17 @@
 use std::{
     path::PathBuf,
     rc::Rc,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex, RwLock}, iter::Map, collections::HashMap, borrow::BorrowMut,
 };
 
 use clap::Parser;
-use concurrency_download::download_list;
+use concurrency_download::{download_list, download_list_stream};
 use tokio::{
     fs::{create_dir_all, File},
     io::AsyncWriteExt,
 };
+use sha2::{Sha256, Sha512, Digest};
+
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -32,9 +34,13 @@ async fn main() {
     } else {
         let reqwest = reqwest::Client::new();
         let out_dir = cli.output.unwrap_or("./content".into());
-        create_dir_all(out_dir).await.unwrap();
+        create_dir_all(&out_dir).await.unwrap();
+        let out_dir_d = &out_dir.display();
+        let mut files : HashMap<&str, File> = HashMap::new();
+        let mut files_m = Box::from(files);
 
-        let on_complete = |b: Vec<u8>| async move {
+
+        let on_complete = |b: Vec<u8>,url| async move {
             let ext = match infer::get(&b) {
                 Some(q) => q.extension(),
                 None => "unknown",
@@ -48,6 +54,29 @@ async fn main() {
                 Err(e) => println!("error writing {}", e),
             }
         };
+        let on_partial = |b: Vec<u8>,url:String| async move {
+            // println!("Got {} bytes ~ {}", b.len(),url);
+            let mut h = sha2::Sha256::new();
+            // let fmut = Rc::get_mut(&mut hb).unwrap();
+            h.update(&url[..]);
+            let hash_pog = format!("{:X}",h.finalize());
+            // let files = files_m.lock().unwrap();
+            match files_m.get_mut(&hash_pog[0..8]) {
+                Some(f) => {f.write(&b).await;},
+                None => {
+                    let ext = match infer::get(&b) {
+                        Some(q) => q.extension(),
+                        None => "unknown",
+                    };
+                    let mut f = File::create(format!("{}/{}.{ext}",&out_dir_d,&hash_pog[0..8])).await.unwrap();
+                    f.write(&b).await;
+                    files_m.insert(&hash_pog[0..8], f);
+
+                },
+            };
+            println!("{} | {} ",&hash_pog,b.len());
+            vec![]
+        };
 
         match cli.file {
             Some(file) => {
@@ -55,7 +84,7 @@ async fn main() {
             }
             None => {
                 println!("Downloading urls: {:?}", cli.urls);
-                download_list(&reqwest, cli.urls.unwrap(), on_complete, 8).await;
+                download_list_stream(&reqwest, cli.urls.unwrap(), on_complete,&on_partial, 8).await;
             }
         }
     }
