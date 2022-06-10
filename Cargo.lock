@@ -588,6 +588,7 @@ dependencies = [
  "concurrency_download",
  "indicatif",
  "infer",
+ "lazy_static",
  "reqwest",
  "sha2",
  "tokio",

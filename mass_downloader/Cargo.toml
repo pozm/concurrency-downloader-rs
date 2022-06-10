@@ -14,3 +14,4 @@ reqwest = "0.11.10"
 uuid = {version = "1.1.1",features=["v4"]}
 indicatif = "0.17.0-rc.11"
 sha2="0.10.2"
+lazy_static = "1.4.0"

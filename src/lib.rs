@@ -76,7 +76,7 @@ pub async fn download_list<
 pub async fn download_list_stream<
     T: Into<String> + Debug + Clone,
     F: Fn(Vec<u8>,String) -> Fut,
-    F2: Fn(Vec<u8>,String) -> Fut2,
+    F2: Fn(Vec<u8>,String,u64,u64) -> Fut2,
     Fut: Future<Output = ()>,
     Fut2: Future<Output = Vec<u8>>,
 >(
@@ -100,10 +100,13 @@ pub async fn download_list_stream<
                 async move {
                     let ur = url.into();
                     let resp = client.get(&ur).send().await.unwrap();
+                    let total_size = resp.content_length().unwrap_or(0);
                     let mut s = resp.bytes_stream();
                     let mut rep = vec![];
+                    let mut current_size = 0u64;
                     while let Some(item) = s.next().await {
-                        rep.append(&mut on_partial(item.unwrap().to_vec(),ur.clone()).await);
+                        current_size+=item.as_ref().unwrap().len() as u64;
+                        rep.append(&mut on_partial(item.unwrap().to_vec(),ur.clone(),current_size,total_size).await);
                     }
                     (rep,ur)
                 }
