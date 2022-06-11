@@ -31,11 +31,11 @@ struct ProgramArgs {
 
 // lol fuck you fnonce
 lazy_static::lazy_static!{
-    static ref HTOFILE :  Arc<RwLock<HashMap<String, (File,ProgressBar)>>> = Arc::new(RwLock::new(HashMap::new()));
+    static ref HTOFILE :  Arc<RwLock<HashMap<String, (File,u16)>>> = Arc::new(RwLock::new(HashMap::new()));
     static ref MULTIPROG : Arc<RwLock<MultiProgress>> = Arc::new(RwLock::new(MultiProgress::new()));
-    // static ref MULTIPROGLAST : Arc<RwLock<Option<ProgressBar>>> = Arc::new(RwLock::new(None));
+    static ref MPBS : Arc<RwLock<Vec<(ProgressBar,bool)>>> = Arc::new(RwLock::new(vec![]));
+    static ref MASTERPB : Arc<RwLock<Option<ProgressBar>>> = Arc::new(RwLock::new(None));
 }
-
 #[tokio::main]
 async fn main() {
     let cli: ProgramArgs = ProgramArgs::parse();
@@ -48,6 +48,19 @@ async fn main() {
         let out_dir = cli.output.unwrap_or("./content".into());
         create_dir_all(&out_dir).await.unwrap();
         let out_dir_d = &out_dir.display();
+
+        for i in 0..cli.concurrent {
+            let pb = ProgressBar::new_spinner();
+            let pb = MULTIPROG.write().unwrap().insert_from_back(0, pb);
+            MPBS.write().unwrap().push((pb,false))
+        }
+        let master = ProgressBar::new_spinner();
+        let master = MULTIPROG.write().unwrap().insert_from_back(0, master);
+        let master_sty = ProgressStyle::with_template(
+            "[{elapsed_precise}] {wide_bar:.magenta.bold/magenta} {pos:>1}/{len:1} {msg} ({eta})",
+        )
+        .unwrap()
+        .progress_chars("█▓▒░  ");
         // let mut files : HashMap<String, File> = HashMap::new();
         // let mut files_m =  Arc::new(Mutex::new(files));
 
@@ -67,13 +80,20 @@ async fn main() {
             let mut fmut = HTOFILE.write().expect("unable to unlock");
             if let Some(f) = fmut.get_mut(&hash_pog[0..8]) {
                 f.0.flush().expect("unable to flush");
-                let sty = ProgressStyle::with_template(
-                    " [{elapsed_precise}] {wide_bar:40.cyan/blue} {bytes}/{total_bytes} {msg}",
-                )
-                .unwrap()
-                .progress_chars("#>-");
-                f.1.set_style(sty);
-                f.1.finish_with_message((&hash_pog[0..8]).to_string());
+                // let sty = ProgressStyle::with_template(
+                //     " [{elapsed_precise}] {wide_bar:40.cyan/blue} {bytes}/{total_bytes} {msg}",
+                // )
+                // .unwrap()
+                // .progress_chars("#>-");
+                // f.1.set_style(sty);
+                // f.1.finish_with_message((&hash_pog[0..8]).to_string());
+                // MULTIPROG.write().expect("haa").remove(&f.1);
+                let mut pbbbs =MPBS.write().unwrap();
+                pbbbs.get_mut(f.1 as usize).unwrap().1 = false;
+                // MULTIPROG.write().unwrap().println(&format!("{} has completed",&hash_pog[0..8])).expect("not pogger");
+
+                // MASTERPB.write().unwrap().as_ref().unwrap().inc(1);
+
                 fmut.remove(&hash_pog[0..8]);
             } else {
                 // println!("{} not open??", &hash_pog[0..8]);
@@ -93,7 +113,12 @@ async fn main() {
                     // println!("\tprw {} {}/{}", &hash_pog[0..8], size, total_size);
                     f.0.write(&b).expect("h");
                     // println!("\tpow {}", &hash_pog[0..8]);
-                    f.1.set_position(size);
+                    let mut pbbbs =MPBS.write().unwrap();
+                    pbbbs.get_mut(f.1 as usize).unwrap().0.set_position(size);
+                    if size >= total_size {
+                        MULTIPROG.write().unwrap().println(&format!("{} has completed",&hash_pog[0..8])).expect("not pogger");
+                        MASTERPB.write().unwrap().as_ref().unwrap().inc(1);
+                    }
                 },
                 None => {
                     // println!("\tinf {}", &hash_pog[0..8]);
@@ -110,15 +135,22 @@ async fn main() {
                     // let last = fmut.
                     // LAST
                     let sty = ProgressStyle::with_template(
-                        "{spinner:.magenta} [{elapsed_precise}] {wide_bar:40.cyan/blue} {bytes}/{total_bytes} {msg} ({eta})",
+                        "{spinner:.magenta} [{elapsed_precise}] {wide_bar:.magenta/magenta.dim} {bytes}/{total_bytes} {msg} ({eta})",
                     )
                     .unwrap()
                     .progress_chars("#>-");
-                    let p = ProgressBar::new(total_size);
-                    p.set_style(sty);
-                    p.set_message((&hash_pog[0..8]).to_string());
-                    let pb = MULTIPROG.write().expect("haa").insert_from_back(0,p);
-                    fmut.insert((&hash_pog[0..8]).to_string(), (f,pb));
+                    // let p = ProgressBar::new(total_size);
+                    let mut pbbbs =MPBS.write().unwrap();
+                    let p = pbbbs.iter_mut().enumerate().find(|(_i,x)| x.1 == false).unwrap();
+                    let i = p.0;
+                    let p = p.1;
+                    p.0.set_style(sty);
+                    p.0.set_length(total_size);
+                    p.0.set_position(size);
+                    p.0.set_message((&hash_pog[0..8]).to_string());
+                    p.1 = true;
+                    // MULTIPROG.write().expect("haa")
+                    fmut.insert((&hash_pog[0..8]).to_string(), (f,i as u16));
                     // println!("\ti {}", &hash_pog[0..8]);
                     
 
@@ -129,6 +161,7 @@ async fn main() {
             vec![]
         };
 
+        master.set_message("total");
         match cli.file {
             Some(file) => {
                 println!("Downloading file: {}", file.display());
@@ -140,10 +173,16 @@ async fn main() {
                     urls.push(l.unwrap());
                 }
                 println!("{:#?} urls", urls.len());
+                master.set_style(master_sty);
+                master.set_length(urls.len() as u64);
+                *MASTERPB.write().unwrap() = Some(master);
                 download_list_stream(&reqwest, urls, on_complete,&on_partial, cli.concurrent as usize).await;
             }
             None => {
                 println!("Downloading urls: {:?}", cli.urls);
+                master.set_style(master_sty);
+                master.set_length(cli.urls.as_ref().unwrap().len() as u64);
+                *MASTERPB.write().unwrap() = Some(master);
                 download_list_stream(&reqwest, cli.urls.unwrap(), on_complete,&on_partial, cli.concurrent as usize).await;
             }
         }

@@ -12,6 +12,6 @@ clap = {version = "3.1.18",features = ["derive"]}
 concurrency_download = {path=".."}
 reqwest = "0.11.10"
 uuid = {version = "1.1.1",features=["v4"]}
-indicatif = "0.17.0-rc.11"
+indicatif = {git="https://github.com/console-rs/indicatif.git"}
 sha2="0.10.2"
 lazy_static = "1.4.0"
